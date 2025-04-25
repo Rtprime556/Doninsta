@@ -1,0 +1,20 @@
+services:
+  - name: instagram-reels-bot
+    ports:
+      - port: 8080
+        http_path: "/"
+    env:
+      - name: BOT_TOKEN
+        secret: true
+    scaling:
+      min: 1
+    health_checks:
+      http:
+        path: "/"
+        port: 8080
+        interval: 10
+        timeout: 5
+        success_threshold: 1
+        failure_threshold: 3
+    docker:
+      image: koyeb/app
