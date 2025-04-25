@@ -6,14 +6,12 @@ import logging
 from urllib.parse import urlparse
 from flask import Flask
 import threading
-from keep_alive import keep_alive  # For additional uptime monitoring
 
-# Initialize Flask app for health checks
+# Initialize Flask for health checks (required for Koyeb)
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    """Endpoint for Koyeb health checks"""
     return "OK", 200
 
 # Configure logging
@@ -40,11 +38,10 @@ loader = instaloader.Instaloader(
     download_video_thumbnails=False,
     download_geotags=False,
     download_comments=False,
-    save_metadata=False,
-    compress_json=False
+    save_metadata=False
 )
 
-# Session management
+# User session storage
 user_sessions = {}
 
 def extract_shortcode(url):
@@ -63,7 +60,7 @@ def extract_shortcode(url):
     raise ValueError("Couldn't extract reel shortcode")
 
 def cleanup_directory():
-    """Clean up download directory"""
+    """Remove all files in download directory"""
     for filename in os.listdir(DOWNLOAD_DIR):
         file_path = os.path.join(DOWNLOAD_DIR, filename)
         try:
@@ -136,18 +133,17 @@ def process_download(message):
         loader.download_post(post, target=DOWNLOAD_DIR)
         
         # Find downloaded file
-        video_file = next(
-            (f for f in os.listdir(DOWNLOAD_DIR) 
-            if f.endswith('.mp4') and shortcode in f
-        )
-        if not video_file:
-            raise FileNotFoundError("Downloaded file not found")
+        video_files = [f for f in os.listdir(DOWNLOAD_DIR) 
+                      if f.endswith('.mp4') and shortcode in f]
         
-        file_path = os.path.join(DOWNLOAD_DIR, video_file)
+        if not video_files:
+            raise FileNotFoundError("No video file found after download")
+
+        video_path = os.path.join(DOWNLOAD_DIR, video_files[0])
         
         if format_type == "video":
             bot.send_chat_action(chat_id, 'upload_video')
-            with open(file_path, 'rb') as f:
+            with open(video_path, 'rb') as f:
                 bot.send_video(
                     chat_id,
                     f,
@@ -158,7 +154,7 @@ def process_download(message):
             # Convert to MP3
             audio_path = os.path.join(DOWNLOAD_DIR, f"{shortcode}.mp3")
             subprocess.run(
-                ['ffmpeg', '-i', file_path, '-q:a', '0', '-map', 'a', audio_path],
+                ['ffmpeg', '-i', video_path, '-q:a', '0', '-map', 'a', audio_path],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
@@ -174,7 +170,7 @@ def process_download(message):
             os.remove(audio_path)
         
         # Cleanup
-        os.remove(file_path)
+        os.remove(video_path)
         user_sessions.pop(chat_id, None)
         
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -217,9 +213,6 @@ if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
-    
-    # Start uptime monitoring (optional)
-    keep_alive()
     
     logger.info("Starting Instagram Reels Downloader Bot")
     bot.infinity_polling()
